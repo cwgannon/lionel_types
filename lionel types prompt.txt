@@ -1,0 +1,31 @@
+need help creating an application
+the user will be a child
+important that once the application is started, it is difficult to exit
+	built-in windows keystrokes to terminate programs--such as alt-f4--should be accepted
+	the windows key should be disabled while the program is active
+will be a full screen application
+able to be run from windows
+require specific multi-key keystroke to exit the program
+
+on startup:
+blank screen with black background color
+flashing cursor which is light blue in color
+accept certain keystrokes and print corresponding letter or key name to the screen; printed keystrokes are also light blue, same as cursor
+the Enter key should create a line break
+if keys such as f1, f2, print screen, scroll lock, etc. (non-alphanumeric, non-punctuation) are pressed, print the name of the key in capital letters (F1, F2, PRTSC, SCRLK, etc.)
+
+before you get started on coding, use best judgment given the provided circumstances to select a coding language. explain your choice of coding language.
+
+provide the code for the application. be sure to follow best coding practices.
+
+---
+
+great start. a few things to please resolve.
+
+let's have text start from the center and break to new line when the screen is 66% full of text
+let's make text real big. 120 point
+when enter is pressed, there should be a blank line added, with text starting on the line after the blank line
+let's disable print screen key while app is open; when i press it now, i get the print screen dialog
+let's remove arrow keys from the set of "special" keys. arrow keys should now move the cursor around
+the "special" keys are not working properly. only DEL works. others have no effect or serve their usual function. their usual function should not be performed.
+when the screen is filled with text, clear the text and put the cursor back at top middle of the screen.
