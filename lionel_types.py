@@ -38,7 +38,8 @@ font = pygame.font.Font(None, FONT_SIZE)
 # Cursor
 class Cursor:
     def __init__(self):
-        self.position = [SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2]
+        self.x = 0
+        self.y = 0
         self.visible = True
         self.blink_timer = 0
 
@@ -50,59 +51,61 @@ class Cursor:
 
     def draw(self, surface):
         if self.visible:
-            pygame.draw.rect(surface, TEXT_COLOR, (self.position[0], self.position[1], 10, FONT_SIZE), 2)
+            pygame.draw.rect(surface, TEXT_COLOR, (self.x, self.y, 10, FONT_SIZE), 2)
 
     def move(self, dx, dy):
-        self.position[0] = max(0, min(self.position[0] + dx, SCREEN_WIDTH - 10))
-        self.position[1] = max(0, min(self.position[1] + dy, SCREEN_HEIGHT - FONT_SIZE))
+        self.x = max(0, min(self.x + dx, len(text_lines[-1]) * font.size(" ")[0]))
+        self.y = max(0, min(self.y + dy, (len(text_lines) - 1) * LINE_HEIGHT))
 
 cursor = Cursor()
 text_lines = ['']
 
 def draw_text(surface):
-    y = SCREEN_HEIGHT // 2
+    surface.fill(BG_COLOR)
+    y = 0
     for line in text_lines:
         text_surface = font.render(line, True, TEXT_COLOR)
-        surface.blit(text_surface, (SCREEN_WIDTH // 2, y))
+        surface.blit(text_surface, (0, y))
         y += LINE_HEIGHT
-        if y > SCREEN_HEIGHT * 0.66:
-            text_lines.clear()
-            text_lines.append('')
-            cursor.position = [SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2]
-            break
+
+    if cursor.visible:
+        cursor_rect = pygame.Rect(cursor.x, cursor.y, 10, FONT_SIZE)
+        pygame.draw.rect(surface, TEXT_COLOR, cursor_rect, 2)
 
 def handle_keydown(event):
     global running
     if event.key == pygame.K_RETURN:
-        cursor.position[0] = SCREEN_WIDTH // 2
-        cursor.position[1] += LINE_HEIGHT * 2
         text_lines.append('')
+        cursor.y += LINE_HEIGHT
+        if cursor.y >= SCREEN_HEIGHT * 0.66:
+            text_lines.pop(0)
+            cursor.y = 0
     elif event.key == pygame.K_BACKSPACE:
         if text_lines:
             if text_lines[-1]:
                 text_lines[-1] = text_lines[-1][:-1]
+                cursor.x -= font.size(" ")[0]
             else:
                 text_lines.pop()
-                cursor.position[1] -= LINE_HEIGHT * 2
+                cursor.y -= LINE_HEIGHT
                 if not text_lines:
                     text_lines.append('')
-    elif event.key in (pygame.K_LALT, pygame.K_RALT, pygame.K_TAB, pygame.K_ESCAPE, pygame.K_PRINTSCREEN):
+    elif event.key in (pygame.K_LALT, pygame.K_RALT, pygame.K_TAB, pygame.K_ESCAPE):
         return
     elif event.key == pygame.K_LCTRL and pygame.key.get_pressed()[pygame.K_q]:
         running = False
-    elif event.key in (pygame.K_LEFT, pygame.K_RIGHT, pygame.K_UP, pygame.K_DOWN):
-        if event.key == pygame.K_LEFT:
-            cursor.move(-font.size(" ")[0], 0)
-        elif event.key == pygame.K_RIGHT:
-            cursor.move(font.size(" ")[0], 0)
-        elif event.key == pygame.K_UP:
-            cursor.move(0, -LINE_HEIGHT)
-        elif event.key == pygame.K_DOWN:
-            cursor.move(0, LINE_HEIGHT)
+    elif event.key == pygame.K_LEFT:
+        cursor.move(-font.size(" ")[0], 0)
+    elif event.key == pygame.K_RIGHT:
+        cursor.move(font.size(" ")[0], 0)
+    elif event.key == pygame.K_UP:
+        cursor.move(0, -LINE_HEIGHT)
+    elif event.key == pygame.K_DOWN:
+        cursor.move(0, LINE_HEIGHT)
     else:
         if event.key in range(pygame.K_a, pygame.K_z + 1) or event.key in range(pygame.K_0, pygame.K_9 + 1) or event.unicode.isprintable():
             text_lines[-1] += event.unicode
-            cursor.position[0] += font.size(event.unicode)[0]
+            cursor.x += font.size(event.unicode)[0]
         else:
             special_keys = {
                 pygame.K_F1: "F1", pygame.K_F2: "F2", pygame.K_F3: "F3", pygame.K_F4: "F4", pygame.K_F5: "F5",
@@ -112,7 +115,7 @@ def handle_keydown(event):
             }
             if event.key in special_keys:
                 text_lines[-1] += special_keys[event.key]
-                cursor.position[0] += font.size(special_keys[event.key])[0]
+                cursor.x += font.size(special_keys[event.key])[0]
 
 # Main loop
 running = True
@@ -128,9 +131,7 @@ while running:
 
     cursor.update(dt)
 
-    screen.fill(BG_COLOR)
     draw_text(screen)
-    cursor.draw(screen)
     pygame.display.flip()
 
 pygame.quit()
