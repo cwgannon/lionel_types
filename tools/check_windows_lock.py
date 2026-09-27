@@ -25,6 +25,7 @@ user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintyp
 user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
 user32.IsWindowVisible.argtypes = (wintypes.HWND,)
 user32.GetWindowTextW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
 WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 user32.EnumWindows.argtypes = (WNDENUMPROC, wintypes.LPARAM)
 
@@ -82,18 +83,26 @@ def foreground_pid() -> int:
     return pid.value
 
 
-def app_window(pid: int):
+def windows_of(pid: int):
+    """(hwnd, visible, class name) for each top-level window the process owns."""
     found = []
 
     def visit(hwnd, _):
         owner = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
-        if owner.value == pid and user32.IsWindowVisible(hwnd):
-            found.append(hwnd)
+        if owner.value == pid:
+            name = ctypes.create_unicode_buffer(100)
+            user32.GetClassNameW(hwnd, name, 100)
+            found.append((hwnd, bool(user32.IsWindowVisible(hwnd)), name.value))
         return True
 
     user32.EnumWindows(WNDENUMPROC(visit), 0)
-    return found[0] if found else None
+    return found
+
+
+def app_window(pid: int):
+    visible = [hwnd for hwnd, is_visible, name in windows_of(pid) if is_visible and name == "SDL_app"]
+    return visible[0] if visible else None
 
 
 def describe_foreground() -> str:
@@ -141,6 +150,7 @@ def main() -> int:
             user32.SetForegroundWindow(hwnd)
         in_front = wait_for_front(app.pid, 3)
         print("Foreground after handoff:", describe_foreground(), "app window:", hwnd)
+        print("App process windows:", windows_of(app.pid))
     if in_front:
         time.sleep(1.0)
         tap(VK_LWIN)  # Start menu
