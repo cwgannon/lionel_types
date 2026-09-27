@@ -138,16 +138,19 @@ def main() -> int:
     sticky_before = sticky_keys_flags()
     app = subprocess.Popen([sys.executable, "-m", "lionel_types", "--self-test", "15", "--mute"],
                            cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    in_front = wait_for_front(app.pid, 6)
-    if not in_front and os.environ.get("CI"):
+    hwnd = None
+    deadline = time.time() + 30  # startup can be slow on CI machines with no sound card
+    while hwnd is None and time.time() < deadline and app.poll() is None:
+        time.sleep(0.2)
+        hwnd = app_window(app.pid)
+    in_front = wait_for_front(app.pid, 3)
+    if not in_front and hwnd and os.environ.get("CI"):
         # Windows won't let a background-launched app take focus. On a CI desktop nobody is
         # typing, so use the usual workaround: after sending input ourselves, we're allowed
         # to hand the foreground to the app.
         print("Foreground before handoff:", describe_foreground())
-        hwnd = app_window(app.pid)
         tap(VK_ALT)
-        if hwnd:
-            user32.SetForegroundWindow(hwnd)
+        user32.SetForegroundWindow(hwnd)
         in_front = wait_for_front(app.pid, 3)
         print("Foreground after handoff:", describe_foreground(), "app window:", hwnd)
         print("App process windows:", windows_of(app.pid))
