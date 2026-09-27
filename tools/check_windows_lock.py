@@ -22,6 +22,11 @@ REPO = Path(__file__).resolve().parent.parent
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 user32.GetForegroundWindow.restype = wintypes.HWND
 user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
+user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+user32.GetWindowTextW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+user32.EnumWindows.argtypes = (WNDENUMPROC, wintypes.LPARAM)
 
 
 class KEYBDINPUT(ctypes.Structure):
@@ -77,6 +82,35 @@ def foreground_pid() -> int:
     return pid.value
 
 
+def app_window(pid: int):
+    found = []
+
+    def visit(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user32.IsWindowVisible(hwnd):
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(visit), 0)
+    return found[0] if found else None
+
+
+def describe_foreground() -> str:
+    hwnd = user32.GetForegroundWindow()
+    title = ctypes.create_unicode_buffer(200)
+    if hwnd:
+        user32.GetWindowTextW(hwnd, title, 200)
+    return f"hwnd={hwnd} pid={foreground_pid()} title={title.value!r}"
+
+
+def wait_for_front(pid: int, seconds: float) -> bool:
+    deadline = time.time() + seconds
+    while time.time() < deadline and foreground_pid() != pid:
+        time.sleep(0.1)
+    return foreground_pid() == pid
+
+
 def screenshot(path: str) -> None:
     subprocess.run(["powershell.exe", "-NoProfile", "-Command",
                     "Add-Type -AssemblyName System.Windows.Forms, System.Drawing;"
@@ -93,12 +127,20 @@ def main() -> int:
         return 2
 
     sticky_before = sticky_keys_flags()
-    app = subprocess.Popen([sys.executable, "-m", "lionel_types", "--self-test", "10", "--mute"],
+    app = subprocess.Popen([sys.executable, "-m", "lionel_types", "--self-test", "15", "--mute"],
                            cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    deadline = time.time() + 8
-    while time.time() < deadline and foreground_pid() != app.pid:
-        time.sleep(0.1)
-    in_front = foreground_pid() == app.pid
+    in_front = wait_for_front(app.pid, 6)
+    if not in_front and os.environ.get("CI"):
+        # Windows won't let a background-launched app take focus. On a CI desktop nobody is
+        # typing, so use the usual workaround: after sending input ourselves, we're allowed
+        # to hand the foreground to the app.
+        print("Foreground before handoff:", describe_foreground())
+        hwnd = app_window(app.pid)
+        tap(VK_ALT)
+        if hwnd:
+            user32.SetForegroundWindow(hwnd)
+        in_front = wait_for_front(app.pid, 3)
+        print("Foreground after handoff:", describe_foreground(), "app window:", hwnd)
     if in_front:
         time.sleep(1.0)
         tap(VK_LWIN)  # Start menu
