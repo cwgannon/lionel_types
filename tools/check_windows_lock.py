@@ -101,7 +101,7 @@ def windows_of(pid: int):
 
 
 def app_window(pid: int):
-    visible = [hwnd for hwnd, is_visible, name in windows_of(pid) if is_visible and name == "SDL_app"]
+    visible = [hwnd for hwnd, is_visible, name in windows_of(pid) if is_visible and name not in ("IME", "MSCTFIME UI")]
     return visible[0] if visible else None
 
 
