@@ -63,3 +63,7 @@ def test_parent_chord_is_exactly_ctrl_shift_q():
     assert not keys.is_parent_chord({pygame.K_LCTRL, pygame.K_LSHIFT})
     assert not keys.is_parent_chord({pygame.K_LCTRL, pygame.K_LSHIFT, pygame.K_q, pygame.K_a})
     assert not keys.is_parent_chord({pygame.K_LCTRL, pygame.K_q, pygame.K_a})
+
+
+def test_parent_chord_ignores_keys_the_keyboard_lock_took():
+    assert keys.is_parent_chord({pygame.K_LCTRL, pygame.K_LSHIFT, pygame.K_q, ("vk", 0xA4)})

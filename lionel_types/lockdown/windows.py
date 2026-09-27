@@ -59,8 +59,6 @@ user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
 user32.SetForegroundWindow.restype = wintypes.BOOL
 user32.BringWindowToTop.argtypes = (wintypes.HWND,)
 user32.BringWindowToTop.restype = wintypes.BOOL
-user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
-user32.GetAsyncKeyState.restype = ctypes.c_short
 user32.SystemParametersInfoW.argtypes = (wintypes.UINT, wintypes.UINT, ctypes.c_void_p, wintypes.UINT)
 user32.SystemParametersInfoW.restype = wintypes.BOOL
 kernel32.GetCurrentThreadId.argtypes = ()
@@ -171,7 +169,7 @@ class WindowsLockdown(Lockdown):
         self._hooked = threading.Event()
         self._hook_error = 0
         self._proc = HOOKPROC(self._callback)  # must outlive the hook
-        self._down_before_hook: Set[int] = set()
+        self._swallowed_down: Set[int] = set()  # keys whose press we hid from Windows
         self._saved_accessibility: List[Tuple[int, ctypes.Structure]] = []
         self._claim_focus_until = 0.0
         self._next_focus_try = 0.0
@@ -184,7 +182,6 @@ class WindowsLockdown(Lockdown):
         if window_id:
             bring_to_front(window_id)
         self._saved_accessibility = disable_accessibility_shortcuts()
-        self._down_before_hook = {vk for vk in SWALLOWED if user32.GetAsyncKeyState(vk) & 0x8000}
         atexit.register(self.release)
         self._thread = threading.Thread(target=self._run, name="keyboard-lock", daemon=True)
         self._thread.start()
@@ -234,17 +231,23 @@ class WindowsLockdown(Lockdown):
             user32.UnhookWindowsHookEx(hook)
 
     def _callback(self, n_code: int, w_param: int, l_param: int) -> int:
+        """Swallow a key's press and release together, so neither Windows nor the app
+        is ever left thinking a key is still held down."""
         try:
-            if n_code == HC_ACTION and self._hwnd and user32.GetForegroundWindow() == self._hwnd:
+            if n_code == HC_ACTION:
                 info = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
-                key = SWALLOWED.get(info.vkCode)
+                vk = info.vkCode
+                key = SWALLOWED.get(vk)
                 if key is not None:
-                    down = w_param in (WM_KEYDOWN, WM_SYSKEYDOWN)
-                    if not down and info.vkCode in self._down_before_hook:
-                        # Windows saw this key go down before we started; let it see it come up.
-                        self._down_before_hook.discard(info.vkCode)
-                    else:
-                        self._events.put((("vk", info.vkCode), down, key))
+                    if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
+                        if vk in self._swallowed_down or (
+                                self._hwnd and user32.GetForegroundWindow() == self._hwnd):
+                            self._swallowed_down.add(vk)
+                            self._events.put((("vk", vk), True, key))
+                            return 1
+                    elif vk in self._swallowed_down:
+                        self._swallowed_down.discard(vk)
+                        self._events.put((("vk", vk), False, key))
                         return 1
         except Exception:  # never let a bug here break the whole keyboard
             pass

@@ -137,7 +137,7 @@ class Sounds:
             return
         try:
             if not pygame.mixer.get_init():
-                pygame.mixer.init()
+                pygame.mixer.init(44100, -16, 2, 512)
             freq, size, channels = pygame.mixer.get_init()
         except pygame.error:
             return

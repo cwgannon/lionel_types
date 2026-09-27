@@ -111,7 +111,10 @@ class Style:
             if glyph.is_label:
                 self._draw_keycap(surface, glyph.text, glyph.color)
             else:
-                surface.blit(self.font.render(glyph.text, True, glyph.color), (0, self.baseline - self.ascent))
+                try:
+                    surface.blit(self.font.render(glyph.text, True, glyph.color), (0, self.baseline - self.ascent))
+                except pygame.error:
+                    pass  # a character with no width (a few combining marks): draw nothing
             self._surfaces[key] = surface
         return surface
 

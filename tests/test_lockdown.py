@@ -6,6 +6,7 @@ import pytest
 from lionel_types import keys, lockdown
 
 windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Windows keyboard lock")
+KEY_UP = 0x0101
 
 
 def test_disabled_lockdown_blocks_nothing():
@@ -48,12 +49,57 @@ def test_hook_swallows_escape_keys_only_while_our_window_is_in_front(monkeypatch
         return lock._callback(windows.HC_ACTION, message, ctypes.addressof(info))
 
     assert send(0x5B) == 1  # Windows key: swallowed...
-    assert send(0x5B, message=0x0101) == 1
+    assert send(0x5B, message=KEY_UP) == 1
     assert [(down, key.text) for _, down, key in lock.poll()] == [(True, "WIN"), (False, "WIN")]  # ...and forwarded
-    assert send(0xA4, message=windows.WM_SYSKEYDOWN) == 1  # Alt
     assert send(0x41) == 0  # the letter A goes through normally
-    fake.foreground = 222  # another window is in front: hands off
-    assert send(0x5B) == 0
+
+    assert send(0xA4, message=windows.WM_SYSKEYDOWN) == 1  # Alt pressed while we're in front...
+    fake.foreground = 222
+    assert send(0xA4, message=KEY_UP) == 1  # ...is released to us too, even after focus moved
+    assert send(0x5B) == 0  # another window is in front: hands off...
+    fake.foreground = 111
+    assert send(0x5B, message=KEY_UP) == 0  # ...including the release Windows is waiting for
+    assert [(down, key.text) for _, down, key in lock.poll()] == [(True, "ALT"), (False, "ALT")]
+
+
+class FakeQuartz:
+    """Just enough of PyObjC's Quartz for the Mac event tap's decisions."""
+
+    def CGEventGetIntegerValueField(self, event, field):
+        return event["keycode"]
+
+    def CGEventGetFlags(self, event):
+        return event["flags"]
+
+    def CGEventTapEnable(self, tap, enabled):
+        pass
+
+
+def test_mac_tap_releases_follow_presses_even_if_command_is_let_go_first(monkeypatch):
+    import types
+
+    from lionel_types.lockdown import macos
+
+    appkit = types.SimpleNamespace(NSEvent=types.SimpleNamespace(
+        eventWithCGEvent_=lambda event: types.SimpleNamespace(charactersIgnoringModifiers=lambda: event["chars"])))
+    monkeypatch.setitem(sys.modules, "Quartz", FakeQuartz())
+    monkeypatch.setitem(sys.modules, "AppKit", appkit)
+    lock = macos.MacLockdown()
+    lock._app = types.SimpleNamespace(isActive=lambda: True)
+
+    def event(kind, keycode, flags=0, chars=""):
+        e = {"keycode": keycode, "flags": flags, "chars": chars}
+        return lock._on_event(None, kind, e, None) is not None  # True = let through
+
+    cmd = macos.FLAG_COMMAND
+    assert not event(macos.KEY_DOWN, 0, cmd, "a")  # Cmd+A: swallowed, "a" forwarded
+    assert not event(macos.KEY_DOWN, 0, cmd, "a")  # auto-repeat
+    assert not event(macos.KEY_UP, 0, 0, "a")  # released after Cmd: still ours
+    assert event(macos.KEY_DOWN, 7, 0, "x")  # plain x goes to the app normally...
+    assert event(macos.KEY_UP, 7, cmd, "x")  # ...and so does its release, even with Cmd down now
+    assert event(macos.KEY_DOWN, macos.ESCAPE, cmd | macos.FLAG_OPTION)  # Force Quit stays available
+    assert [(key_id, down, key.text) for key_id, down, key in lock.poll()] == [
+        (("mac", 0), True, "a"), (("mac", 0), False, "")]
 
 
 @windows_only

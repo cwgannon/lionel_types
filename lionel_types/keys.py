@@ -108,6 +108,7 @@ KEYPAD_CHARS = {
     pygame.K_KP_EQUALS: "=",
 }
 
+LOCK_KEYS = frozenset({pygame.K_CAPSLOCK, pygame.K_NUMLOCK, pygame.K_SCROLLLOCK})
 CTRL_KEYS = frozenset({pygame.K_LCTRL, pygame.K_RCTRL})
 SHIFT_KEYS = frozenset({pygame.K_LSHIFT, pygame.K_RSHIFT})
 
@@ -169,10 +170,15 @@ def apply_case(ch: str, letter_case: str) -> str:
 
 
 def is_parent_chord(held: set) -> bool:
-    """Exactly Ctrl + Shift + Q, and nothing else - unlikely from a mashing toddler."""
+    """Exactly Ctrl + Shift + Q among the ordinary keys - unlikely from a mashing toddler.
+
+    Keys the keyboard lock intercepted (tuple ids) don't count, so a key the OS
+    lost track of can never lock grown-ups out of the menu.
+    """
+    ordinary = {key for key in held if isinstance(key, int)}
     return (
-        len(held) == 3
-        and pygame.K_q in held
-        and bool(held & CTRL_KEYS)
-        and bool(held & SHIFT_KEYS)
+        len(ordinary) == 3
+        and pygame.K_q in ordinary
+        and bool(ordinary & CTRL_KEYS)
+        and bool(ordinary & SHIFT_KEYS)
     )

@@ -40,8 +40,8 @@ class App:
         size: Optional[Tuple[int, int]] = None,
         settings_path: Optional[Path] = None,
     ) -> None:
-        pygame.mixer.pre_init(44100, -16, 2, 512)
-        pygame.init()
+        pygame.display.init()
+        pygame.font.init()  # sound starts up in Sounds, and only if wanted: it can be slow without a sound card
         self.windowed = windowed
         self.settings_path = settings_path
         self.settings = settings_store.load(settings_path)
@@ -94,6 +94,9 @@ class App:
             for note in self.lockdown.notes:
                 print(" -", note)
             print(" - Keys intercepted:", ", ".join(dict.fromkeys(self.intercepted)) or "none")
+            free = self.modes.get("free")
+            if isinstance(free, FreeTyping):
+                print(" - On screen:", " ".join(g.text for g in free.page.glyphs() if not g.is_space) or "nothing")
 
     def step(self, dt: float) -> None:
         """One frame: input, animation, drawing."""
@@ -124,7 +127,13 @@ class App:
                 self.running = False
         elif kind in (pygame.KEYDOWN, pygame.KEYUP):
             key = keys.from_pygame(event.key, getattr(event, "unicode", ""), event.mod)
-            self.on_key(event.key, kind == pygame.KEYDOWN, key)
+            if event.key in keys.LOCK_KEYS:
+                # Not tracked as held: on a Mac, Caps Lock stays "down" for as long as it is on.
+                # There, turning it off arrives as a key-up, which should show CAPS too.
+                if kind == pygame.KEYDOWN or keys.IS_MAC:
+                    self.press(key)
+            else:
+                self.on_key(event.key, kind == pygame.KEYDOWN, key)
         elif kind == pygame.MOUSEMOTION and self.menu is None:
             self.effects.trail(*event.pos, color=pick(self.style.palette))
         elif kind == pygame.MOUSEBUTTONDOWN and self.menu is None and event.button in (1, 2, 3):
@@ -149,9 +158,14 @@ class App:
             return  # the OS repeating a held key
         self.tapped = key_id if key.action == keys.MODIFIER and not self.held else None
         self.held.add(key_id)
+        if key.action != keys.MODIFIER:
+            self.press(key)
+
+    def press(self, key: keys.Key) -> None:
+        """A key press for the menu or the current activity."""
         if self.menu is not None:
             self.menu.key_down(key)
-        elif key.action != keys.MODIFIER and not self._grown_up_chord():
+        elif not self._grown_up_chord():
             self.mode.key_down(key)
 
     def _grown_up_chord(self) -> bool:

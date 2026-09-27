@@ -157,3 +157,9 @@ def test_switching_back_to_free_typing_keeps_the_page(app):
         app.setting_changed("mode")
     assert isinstance(app.mode, FreeTyping)
     assert shown(app) == "HI"
+
+
+def test_caps_lock_left_on_does_not_lock_grown_ups_out(app):
+    down(app, pygame.K_CAPSLOCK)  # on a Mac this stays "down" while Caps Lock is on
+    assert shown(app) == "[CAPS]"
+    open_menu(app)

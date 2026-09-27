@@ -14,7 +14,7 @@ Everything here needs PyObjC; without it the app still runs, just less locked do
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from ..keys import char_key, label_key
 from . import ForwardedKey, Lockdown
@@ -33,9 +33,9 @@ KIOSK_FALLBACK = HIDE_DOCK | HIDE_MENU_BAR | DISABLE_PROCESS_SWITCHING
 # Quartz event types, flags and fields.
 KEY_DOWN, KEY_UP, SYSTEM_DEFINED = 10, 11, 14
 TAP_DISABLED_BY_TIMEOUT, TAP_DISABLED_BY_USER_INPUT = 0xFFFFFFFE, 0xFFFFFFFF
-FLAG_CONTROL, FLAG_COMMAND = 1 << 18, 1 << 20
+FLAG_CONTROL, FLAG_OPTION, FLAG_COMMAND = 1 << 18, 1 << 19, 1 << 20
 KEYCODE_FIELD = 9  # kCGKeyboardEventKeycode
-SPACE, LEFT, RIGHT, DOWN, UP = 49, 123, 124, 125, 126
+ESCAPE, SPACE, LEFT, RIGHT, DOWN, UP = 53, 49, 123, 124, 125, 126
 # Top-row keys on recent Apple keyboards: Mission Control, Launchpad, Spotlight, Dictation, Do Not Disturb.
 SYSTEM_KEYCODES = frozenset({160, 131, 177, 176, 178})
 # Media keys arrive as "system defined" events; data1 carries which key.
@@ -56,15 +56,20 @@ class MacLockdown(Lockdown):
         self._tap = None
         self._source = None
         self._presentation_set = False
-        self._press_and_hold_set = False
+        # keycode -> whether its presses are being forwarded, for keys whose press we swallowed.
+        # The release must follow the press, even if Command was let go in between.
+        self._swallowed: Dict[int, bool] = {}
 
     def prepare(self) -> None:
         # Holding a letter would pop up the accent picker (e -> è é ê). Kids hold keys.
+        # The argument domain lives only as long as this process, so nothing is left behind.
         try:
-            from Foundation import NSUserDefaults
+            from Foundation import NSArgumentDomain, NSUserDefaults
 
-            NSUserDefaults.standardUserDefaults().setBool_forKey_(False, PRESS_AND_HOLD)
-            self._press_and_hold_set = True
+            defaults = NSUserDefaults.standardUserDefaults()
+            arguments = dict(defaults.volatileDomainForName_(NSArgumentDomain) or {})
+            arguments[PRESS_AND_HOLD] = False
+            defaults.setVolatileDomain_forName_(arguments, NSArgumentDomain)
         except Exception:
             pass
 
@@ -114,14 +119,6 @@ class MacLockdown(Lockdown):
             except Exception:
                 pass
             self._presentation_set = False
-        if self._press_and_hold_set:
-            try:
-                from Foundation import NSUserDefaults
-
-                NSUserDefaults.standardUserDefaults().removeObjectForKey_(PRESS_AND_HOLD)
-            except Exception:
-                pass
-            self._press_and_hold_set = False
 
     def _start_event_tap(self) -> bool:
         try:
@@ -160,25 +157,36 @@ class MacLockdown(Lockdown):
             if event_type == SYSTEM_DEFINED:
                 return self._media_key(event)
             keycode = Quartz.CGEventGetIntegerValueField(event, KEYCODE_FIELD)
+            if event_type == KEY_UP:
+                if keycode not in self._swallowed:
+                    return event
+                if self._swallowed.pop(keycode):
+                    self._events.append((("mac", keycode), False, char_key("")))
+                return None
+            if keycode in self._swallowed:  # auto-repeat of a key we already took
+                return None
             flags = Quartz.CGEventGetFlags(event)
-            if keycode in SYSTEM_KEYCODES:
+            if keycode == ESCAPE and flags & FLAG_COMMAND and flags & FLAG_OPTION:
+                return event  # Cmd+Option+Esc (Force Quit) is the grown-ups' way out
+            if keycode in SYSTEM_KEYCODES or (flags & FLAG_CONTROL and keycode in (SPACE, LEFT, RIGHT, UP, DOWN)):
+                self._swallowed[keycode] = False  # Mission Control, Spotlight, Spaces, input switching
                 return None
             if flags & FLAG_COMMAND:
-                self._forward_typed(event, keycode, event_type == KEY_DOWN)
+                self._swallowed[keycode] = self._forward_typed(event, keycode)
                 return None
-            if flags & FLAG_CONTROL and keycode in (SPACE, LEFT, RIGHT, UP, DOWN):
-                return None  # input-source switching and Spaces
         except Exception:  # never let a bug here break the keyboard
             pass
         return event
 
-    def _forward_typed(self, event, keycode: int, down: bool) -> None:
+    def _forward_typed(self, event, keycode: int) -> bool:
         """A palm resting on Command shouldn't make typing vanish: show the letter anyway."""
         from AppKit import NSEvent
 
         text = NSEvent.eventWithCGEvent_(event).charactersIgnoringModifiers() or ""
         if len(text) == 1 and text.isprintable():
-            self._events.append((("mac", keycode), down, char_key(text)))
+            self._events.append((("mac", keycode), True, char_key(text)))
+            return True
+        return False
 
     def _media_key(self, event) -> Optional[object]:
         from AppKit import NSEvent

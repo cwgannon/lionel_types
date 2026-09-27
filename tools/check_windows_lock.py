@@ -23,6 +23,8 @@ user32 = ctypes.WinDLL("user32", use_last_error=True)
 user32.GetForegroundWindow.restype = wintypes.HWND
 user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
 user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
+user32.MapVirtualKeyW.argtypes = (wintypes.UINT, wintypes.UINT)
+user32.MapVirtualKeyW.restype = wintypes.UINT
 user32.IsWindowVisible.argtypes = (wintypes.HWND,)
 user32.GetWindowTextW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
 user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
@@ -54,7 +56,8 @@ VK_SHIFT, VK_CONTROL, VK_ALT, VK_TAB, VK_ESC, VK_PRTSC, VK_LWIN = 0x10, 0x11, 0x
 
 def send(vk: int, up: bool = False) -> None:
     flags = (2 if up else 0) | (1 if vk in EXTENDED_KEYS else 0)
-    event = INPUT(type=1, u=_INPUTUNION(ki=KEYBDINPUT(wVk=vk, dwFlags=flags)))
+    scan = user32.MapVirtualKeyW(vk, 0)  # SDL ignores key events without a hardware scan code
+    event = INPUT(type=1, u=_INPUTUNION(ki=KEYBDINPUT(wVk=vk, wScan=scan, dwFlags=flags)))
     user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(INPUT))
     time.sleep(0.06)
 
@@ -182,12 +185,16 @@ def main() -> int:
     for label in ("WIN", "ALT", "PRTSC", "ESC"):
         if label not in intercepted:
             problems.append(f"{label} was not intercepted")
+    shown = next((line for line in output.splitlines() if "On screen:" in line), "")
+    for label in ("TAB", "SHIFT"):  # ordinary keys still reach the app; Alt+Tab didn't switch away
+        if label not in shown:
+            problems.append(f"{label} did not show up in the app")
     if sticky_keys_flags() != sticky_before:
         problems.append("the Sticky Keys setting was not restored")
     for problem in problems:
         print("FAIL:", problem)
     if not problems:
-        print("OK: Windows key, Alt, Print Screen and Esc were all kept inside the app.")
+        print("OK: Windows key, Alt+Tab, Print Screen, Ctrl+Esc and Shift x5 all stayed inside the app.")
     return 1 if problems else 0
 
 
