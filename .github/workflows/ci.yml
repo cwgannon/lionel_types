@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        python: ["3.12"]
+        include:  # oldest and newest supported Pythons
+          - os: ubuntu-latest
+            python: "3.10"
+          - os: ubuntu-latest
+            python: "3.13"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -r requirements.txt pytest
+      - run: python -m pytest -q
+
+      # The real full-screen app on a real desktop: inject Win, Alt+Tab, PrtSc, Ctrl+Esc
+      # and Shift x5, and check they never escaped the app.
+      - name: Keyboard lock end to end (Windows)
+        if: runner.os == 'Windows'
+        run: python tools/check_windows_lock.py lock-check.png
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: windows-lock-screenshot
+          path: lock-check.png
+          if-no-files-found: ignore
+
+      # Exercises the PyObjC kiosk code on a real macOS desktop.
+      - name: Keyboard lock self-test (macOS)
+        if: runner.os == 'macOS'
+        run: python -m lionel_types --self-test 4 --mute

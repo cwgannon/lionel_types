@@ -1,0 +1,4 @@
+pygame-ce>=2.4
+# Mac keyboard lock (kiosk mode + blocking Command shortcuts)
+pyobjc-framework-Cocoa>=10; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10; sys_platform == "darwin"
