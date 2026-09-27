@@ -1,0 +1,75 @@
+name: Build apps
+
+# Standalone Windows .exe and Mac .app, so no Python is needed on the kids' computer.
+# Download them from the run's artifacts, or from the GitHub release made for a v* tag.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "lionel_types/**"
+      - "packaging/**"
+      - "requirements.txt"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: LionelTypes-Windows
+          - os: macos-latest
+            artifact: LionelTypes-Mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build Windows app
+        if: runner.os == 'Windows'
+        run: >
+          python -m PyInstaller --noconfirm --onefile --windowed --name "Lionel Types"
+          --paths . --collect-data lionel_types packaging/launcher.py
+      - name: Check the Windows app starts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $app = Start-Process -FilePath "dist/Lionel Types.exe" -ArgumentList "--self-test", "4", "--mute" -Wait -PassThru
+          if ($app.ExitCode -ne 0) { throw "Lionel Types exited with $($app.ExitCode)" }
+
+      - name: Build Mac app
+        if: runner.os == 'macOS'
+        run: |
+          python -m PyInstaller --noconfirm --windowed --name "Lionel Types" \
+            --osx-bundle-identifier io.github.cwgannon.lioneltypes \
+            --paths . --collect-data lionel_types packaging/launcher.py
+          "dist/Lionel Types.app/Contents/MacOS/Lionel Types" --self-test 4 --mute
+          ditto -c -k --keepParent "dist/Lionel Types.app" "dist/Lionel Types for Mac.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/Lionel Types.exe
+            dist/Lionel Types for Mac.zip
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - run: gh release create "$GITHUB_REF_NAME" artifacts/*/* --repo "$GITHUB_REPOSITORY" --title "Lionel Types $GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
