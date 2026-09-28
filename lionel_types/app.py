@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Hashable, List, Optional, Sequence, Set, Tuple, Union
 
@@ -26,6 +28,7 @@ from .style import BACKGROUND, LIGHT_BLUE, RAINBOW, Style, load_font  # noqa: E4
 
 FPS = 60
 HINT_SECONDS = 8.0
+SHUTDOWN_SECONDS = 5.0
 
 Mode = Union[FreeTyping, FindTheLetter]
 
@@ -114,9 +117,11 @@ class App:
         if self._closed:
             return
         self._closed = True
-        self.lockdown.release()
+        self.lockdown.release()  # give the keyboard back first, whatever happens next
         self.speaker.close()
-        pygame.quit()
+        with _exit_if_stuck(SHUTDOWN_SECONDS):
+            self.sounds.close()
+            pygame.quit()
 
     # --- input ---------------------------------------------------------------
 
@@ -248,6 +253,20 @@ class App:
         if name not in self.modes:
             self.modes[name] = FindTheLetter(self) if name == "find" else FreeTyping(self)
         return self.modes[name]
+
+
+@contextmanager
+def _exit_if_stuck(seconds: float):
+    """If shutting down hangs, exit anyway rather than leave a frozen full-screen window.
+
+    faulthandler's watchdog is a C thread, so it fires even if Python itself is stuck.
+    """
+    with open(os.devnull, "w") as sink:
+        faulthandler.dump_traceback_later(seconds, exit=True, file=sink)
+        try:
+            yield
+        finally:
+            faulthandler.cancel_dump_traceback_later()
 
 
 def _icon() -> pygame.Surface:

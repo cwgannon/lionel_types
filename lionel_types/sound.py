@@ -145,7 +145,19 @@ class Sounds:
             return
         pygame.mixer.set_num_channels(24)
         self._format = (freq, channels)
-        threading.Thread(target=self._prerender, name="sound-synth", daemon=True).start()
+        threading.Thread(target=self._prerender, args=(self._format,), name="sound-synth", daemon=True).start()
+
+    def close(self) -> None:
+        """Silence everything before pygame shuts the mixer down.
+
+        pygame-ce's mixer quit waits for the audio thread while holding the GIL, and
+        the audio thread needs the GIL whenever a sound finishes - so quitting while a
+        sound is ending can deadlock. mixer.stop() releases the GIL while it halts sounds.
+        """
+        self._format = None
+        if pygame.mixer.get_init():
+            pygame.mixer.stop()
+            pygame.mixer.quit()
 
     @property
     def available(self) -> bool:
@@ -155,21 +167,22 @@ class Sounds:
         self.play(f"note{step_for_char(ch)}")
 
     def play(self, name: str) -> None:
-        if self.muted or self._format is None:
+        audio_format = self._format
+        if self.muted or audio_format is None:
             return
         sound = self._sounds.get(name)
         if sound is None:
-            pcm = self._pcm.get(name) or self._render(name)
+            pcm = self._pcm.get(name) or self._render(name, audio_format)
             sound = self._sounds[name] = pygame.mixer.Sound(buffer=pcm)
         sound.play()
 
-    def _render(self, name: str) -> bytes:
-        rate, channels = self._format
+    def _render(self, name: str, audio_format: Tuple[int, int]) -> bytes:
+        rate, channels = audio_format
         pcm = to_pcm(synthesize(name, rate), 0.45 if name.startswith("note") else 0.5, channels)
         self._pcm[name] = pcm
         return pcm
 
-    def _prerender(self) -> None:
+    def _prerender(self, audio_format: Tuple[int, int]) -> None:
         for name in SOUND_NAMES:
             if name not in self._pcm:
-                self._render(name)
+                self._render(name, audio_format)
