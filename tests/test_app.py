@@ -163,3 +163,11 @@ def test_caps_lock_left_on_does_not_lock_grown_ups_out(app):
     down(app, pygame.K_CAPSLOCK)  # on a Mac this stays "down" while Caps Lock is on
     assert shown(app) == "[CAPS]"
     open_menu(app)
+
+
+def test_closing_silences_and_shuts_down_the_mixer_first(tmp_path):
+    app = App(windowed=True, voice=False, size=(640, 480), settings_path=tmp_path / "s.json")
+    type_text(app, "abc")  # sounds still ringing
+    app.close()
+    assert not pygame.get_init()
+    assert not app.sounds.available
